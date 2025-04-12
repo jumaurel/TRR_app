@@ -67,8 +67,8 @@ class _CarControlScreenState extends State<CarControlScreen> {
   BluetoothCharacteristic? sensorCharacteristic;
 
   // Constants
-  static const double minAngle = -45.0;
-  static const double maxAngle = 45.0;
+  static const double minAngle = -30.0;
+  static const double maxAngle = 30.0;
   static const double minSpeed = 0.0;
   static const double maxSpeed = 255.0;
 
@@ -92,6 +92,15 @@ class _CarControlScreenState extends State<CarControlScreen> {
   List<ScanResult> scanResults = [];
   bool motorsLocked = false;
   bool isGoMode = true; // Au démarrage, le bouton est en mode GO (vert)
+  bool isBackwardMode = false; // Nouvelle variable pour le mode marche arrière
+  double autoMotorPower =
+      50.0; // Nouvelle variable pour la puissance des moteurs en mode auto
+  DateTime _lastDirectionUpdateTime =
+      DateTime.now(); // For throttling direction updates
+  DateTime _lastMotor1UpdateTime =
+      DateTime.now(); // For throttling motor1 updates
+  DateTime _lastMotor2UpdateTime =
+      DateTime.now(); // For throttling motor2 updates
 
   // Paramètres PID
   double kp = 1.0;
@@ -100,11 +109,11 @@ class _CarControlScreenState extends State<CarControlScreen> {
 
   // Constantes pour les limites des paramètres PID
   static const double minKp = 0.0;
-  static const double maxKp = 10.0;
+  static const double maxKp = 1.0;
   static const double minKi = 0.0;
-  static const double maxKi = 5.0;
+  static const double maxKi = 1.0;
   static const double minKd = 0.0;
-  static const double maxKd = 5.0;
+  static const double maxKd = 1.0;
 
   @override
   void initState() {
@@ -333,6 +342,14 @@ class _CarControlScreenState extends State<CarControlScreen> {
             setState(() {
               isConnected = false;
               isScanning = false;
+              isAutoMode = false;
+              isGoMode = true;
+              isBackwardMode = false;
+              motor1Speed = 0.0;
+              motor2Speed = 0.0;
+              direction = 0.0;
+              leftDistance = 0;
+              rightDistance = 0;
             });
           }
         },
@@ -770,15 +787,42 @@ class _CarControlScreenState extends State<CarControlScreen> {
                                                 motor2Speed = value;
                                               }
                                             });
+
+                                            // Throttle the BLE commands to avoid overloading
+                                            final now = DateTime.now();
+                                            if (now
+                                                    .difference(
+                                                        _lastMotor1UpdateTime)
+                                                    .inMilliseconds >
+                                                100) {
+                                              controlCharacteristic?.write(
+                                                  utf8.encode(
+                                                      "M1${value.toInt()}"));
+                                              _lastMotor1UpdateTime = now;
+
+                                              // Si les moteurs sont verrouillés, envoyer aussi la commande au moteur 2
+                                              if (motorsLocked) {
+                                                controlCharacteristic?.write(
+                                                    utf8.encode(
+                                                        "M2${value.toInt()}"));
+                                                _lastMotor2UpdateTime = now;
+                                              }
+                                            }
                                           },
                                           onChangeEnd: (value) {
+                                            // Always send a final update when slider stops
                                             controlCharacteristic?.write(utf8
                                                 .encode("M1${value.toInt()}"));
-                                            // Si les moteurs sont verrouillés, envoyer aussi la commande au moteur 2
+                                            _lastMotor1UpdateTime =
+                                                DateTime.now();
+
+                                            // Si les moteurs sont verrouillés, envoyer aussi la commande finale au moteur 2
                                             if (motorsLocked) {
                                               controlCharacteristic?.write(
                                                   utf8.encode(
                                                       "M2${value.toInt()}"));
+                                              _lastMotor2UpdateTime =
+                                                  DateTime.now();
                                             }
                                           },
                                         ),
@@ -786,26 +830,54 @@ class _CarControlScreenState extends State<CarControlScreen> {
                                     ],
                                   ),
 
-                                  // Bouton de verrouillage des moteurs
-                                  GestureDetector(
-                                    onTap: () {
-                                      setState(() {
-                                        motorsLocked = !motorsLocked;
-                                        // Si on active le verrouillage, synchroniser les moteurs sur la valeur du moteur 1
-                                        if (motorsLocked) {
-                                          motor2Speed = motor1Speed;
-                                        }
-                                      });
-                                    },
-                                    child: Icon(
-                                      motorsLocked
-                                          ? Icons.link
-                                          : Icons.link_off,
-                                      color: motorsLocked
-                                          ? Colors.green
-                                          : Colors.grey,
-                                      size: 25,
-                                    ),
+                                  // Bouton de verrouillage des moteurs et mode marche arrière
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      // Bouton de verrouillage des moteurs
+                                      GestureDetector(
+                                        onTap: () {
+                                          setState(() {
+                                            motorsLocked = !motorsLocked;
+                                            // Si on active le verrouillage, synchroniser les moteurs sur la valeur du moteur 1
+                                            if (motorsLocked) {
+                                              motor2Speed = motor1Speed;
+                                            }
+                                          });
+                                        },
+                                        child: Icon(
+                                          motorsLocked
+                                              ? Icons.link
+                                              : Icons.link_off,
+                                          color: motorsLocked
+                                              ? Colors.green
+                                              : Colors.grey,
+                                          size: 25,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 20),
+                                      // Bouton mode marche arrière
+                                      GestureDetector(
+                                        onTap: () {
+                                          setState(() {
+                                            isBackwardMode = !isBackwardMode;
+                                          });
+                                          // Envoyer la commande de changement de mode marche arrière
+                                          controlCharacteristic?.write(
+                                              utf8.encode(
+                                                  "B${isBackwardMode ? 1 : 0}"));
+                                        },
+                                        child: Icon(
+                                          isBackwardMode
+                                              ? Icons.arrow_back
+                                              : Icons.arrow_forward,
+                                          color: isBackwardMode
+                                              ? Colors.orange
+                                              : Colors.grey,
+                                          size: 25,
+                                        ),
+                                      ),
+                                    ],
                                   ),
 
                                   // Motor 2 control
@@ -852,15 +924,42 @@ class _CarControlScreenState extends State<CarControlScreen> {
                                                 motor1Speed = value;
                                               }
                                             });
+
+                                            // Throttle the BLE commands to avoid overloading
+                                            final now = DateTime.now();
+                                            if (now
+                                                    .difference(
+                                                        _lastMotor2UpdateTime)
+                                                    .inMilliseconds >
+                                                100) {
+                                              controlCharacteristic?.write(
+                                                  utf8.encode(
+                                                      "M2${value.toInt()}"));
+                                              _lastMotor2UpdateTime = now;
+
+                                              // Si les moteurs sont verrouillés, envoyer aussi la commande au moteur 1
+                                              if (motorsLocked) {
+                                                controlCharacteristic?.write(
+                                                    utf8.encode(
+                                                        "M1${value.toInt()}"));
+                                                _lastMotor1UpdateTime = now;
+                                              }
+                                            }
                                           },
                                           onChangeEnd: (value) {
+                                            // Always send a final update when slider stops
                                             controlCharacteristic?.write(utf8
                                                 .encode("M2${value.toInt()}"));
-                                            // Si les moteurs sont verrouillés, envoyer aussi la commande au moteur 1
+                                            _lastMotor2UpdateTime =
+                                                DateTime.now();
+
+                                            // Si les moteurs sont verrouillés, envoyer aussi la commande finale au moteur 1
                                             if (motorsLocked) {
                                               controlCharacteristic?.write(
                                                   utf8.encode(
                                                       "M1${value.toInt()}"));
+                                              _lastMotor1UpdateTime =
+                                                  DateTime.now();
                                             }
                                           },
                                         ),
@@ -909,10 +1008,26 @@ class _CarControlScreenState extends State<CarControlScreen> {
                                             setState(() {
                                               direction = value;
                                             });
+
+                                            // Throttle the BLE commands to avoid overloading
+                                            final now = DateTime.now();
+                                            if (now
+                                                    .difference(
+                                                        _lastDirectionUpdateTime)
+                                                    .inMilliseconds >
+                                                100) {
+                                              // 100ms throttle
+                                              controlCharacteristic?.write(utf8
+                                                  .encode("D${value.toInt()}"));
+                                              _lastDirectionUpdateTime = now;
+                                            }
                                           },
                                           onChangeEnd: (value) {
+                                            // Always send a final update when slider stops to ensure the last position is sent
                                             controlCharacteristic?.write(utf8
                                                 .encode("D${value.toInt()}"));
+                                            _lastDirectionUpdateTime =
+                                                DateTime.now();
                                           },
                                         ),
                                       ),
@@ -1062,6 +1177,56 @@ class _CarControlScreenState extends State<CarControlScreen> {
                                             controlCharacteristic?.write(
                                                 utf8.encode(
                                                     "K${value.toStringAsFixed(2)}"));
+                                          },
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+
+                                  // Motor power control in auto mode
+                                  Column(
+                                    children: [
+                                      Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          const Text(
+                                            'Puissance Moteurs',
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                          Text(
+                                            '${autoMotorPower.toInt()}%',
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.blue,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      SliderTheme(
+                                        data: SliderTheme.of(context).copyWith(
+                                          activeTrackColor: Colors.blue,
+                                          thumbColor: Colors.blue,
+                                          thumbShape:
+                                              const RoundSliderThumbShape(
+                                                  enabledThumbRadius: 12),
+                                        ),
+                                        child: Slider(
+                                          value: autoMotorPower,
+                                          min: 0,
+                                          max: 100,
+                                          divisions: 100,
+                                          onChanged: (value) {
+                                            setState(() {
+                                              autoMotorPower = value;
+                                            });
+                                          },
+                                          onChangeEnd: (value) {
+                                            // Envoyer la commande de puissance des moteurs
+                                            controlCharacteristic?.write(utf8
+                                                .encode("T${value.toInt()}"));
                                           },
                                         ),
                                       ),
