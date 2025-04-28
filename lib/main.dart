@@ -102,18 +102,22 @@ class _CarControlScreenState extends State<CarControlScreen> {
   DateTime _lastMotor2UpdateTime =
       DateTime.now(); // For throttling motor2 updates
 
+  // Liste pour stocker les logs des capteurs
+  final List<String> sensorLogs = [];
+  static const int maxLogs = 100; // Nombre maximum de logs à conserver
+
   // Paramètres PID
-  double kp = 1.0;
+  double kp = 0.01;
   double ki = 0.0;
   double kd = 0.0;
 
   // Constantes pour les limites des paramètres PID
   static const double minKp = 0.0;
-  static const double maxKp = 1.0;
+  static const double maxKp = 0.3;
   static const double minKi = 0.0;
-  static const double maxKi = 1.0;
+  static const double maxKi = 0.05;
   static const double minKd = 0.0;
-  static const double maxKd = 1.0;
+  static const double maxKd = 0.05;
 
   @override
   void initState() {
@@ -400,6 +404,19 @@ class _CarControlScreenState extends State<CarControlScreen> {
         leftDistance = data[0] | (data[1] << 8);
         rightDistance = data[2] | (data[3] << 8);
         isFinishLineDetected = data.length > 4 ? data[4] == 1 : false;
+
+        // Ajouter un nouveau log avec timestamp
+        String timestamp = DateTime.now().toString().split('.')[0];
+        String logEntry =
+            "[$timestamp] Gauche: $leftDistance mm, Droite: $rightDistance mm, Ligne d'arrivée: ${isFinishLineDetected ? "Détectée" : "Non détectée"}";
+
+        // Ajouter le nouveau log au début de la liste
+        sensorLogs.insert(0, logEntry);
+
+        // Limiter le nombre de logs
+        if (sensorLogs.length > maxLogs) {
+          sensorLogs.removeLast();
+        }
       });
     }
   }
@@ -611,12 +628,11 @@ class _CarControlScreenState extends State<CarControlScreen> {
                   absorbing: !isConnected,
                   child: Opacity(
                     opacity: isConnected ? 1.0 : 0.5,
-                    child: Column(
-                      children: [
-                        // Controls section (top)
-                        Expanded(
-                          flex: 5,
-                          child: Padding(
+                    child: SingleChildScrollView(
+                      child: Column(
+                        children: [
+                          // Controls section (top)
+                          Padding(
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 16.0, vertical: 8.0),
                             child: Column(
@@ -1049,7 +1065,7 @@ class _CarControlScreenState extends State<CarControlScreen> {
                                             ),
                                           ),
                                           Text(
-                                            kp.toStringAsFixed(2),
+                                            kp.toStringAsFixed(3),
                                             style: const TextStyle(
                                               fontWeight: FontWeight.bold,
                                               color: Colors.blue,
@@ -1069,7 +1085,7 @@ class _CarControlScreenState extends State<CarControlScreen> {
                                           value: kp,
                                           min: minKp,
                                           max: maxKp,
-                                          divisions: 100,
+                                          divisions: 300,
                                           onChanged: (value) {
                                             setState(() {
                                               kp = value;
@@ -1078,7 +1094,7 @@ class _CarControlScreenState extends State<CarControlScreen> {
                                           onChangeEnd: (value) {
                                             controlCharacteristic?.write(
                                                 utf8.encode(
-                                                    "P${value.toStringAsFixed(2)}"));
+                                                    "P${value.toStringAsFixed(3)}"));
                                           },
                                         ),
                                       ),
@@ -1098,7 +1114,7 @@ class _CarControlScreenState extends State<CarControlScreen> {
                                             ),
                                           ),
                                           Text(
-                                            ki.toStringAsFixed(2),
+                                            ki.toStringAsFixed(3),
                                             style: const TextStyle(
                                               fontWeight: FontWeight.bold,
                                               color: Colors.green,
@@ -1118,7 +1134,7 @@ class _CarControlScreenState extends State<CarControlScreen> {
                                           value: ki,
                                           min: minKi,
                                           max: maxKi,
-                                          divisions: 100,
+                                          divisions: 50,
                                           onChanged: (value) {
                                             setState(() {
                                               ki = value;
@@ -1127,7 +1143,7 @@ class _CarControlScreenState extends State<CarControlScreen> {
                                           onChangeEnd: (value) {
                                             controlCharacteristic?.write(
                                                 utf8.encode(
-                                                    "I${value.toStringAsFixed(2)}"));
+                                                    "I${value.toStringAsFixed(3)}"));
                                           },
                                         ),
                                       ),
@@ -1147,7 +1163,7 @@ class _CarControlScreenState extends State<CarControlScreen> {
                                             ),
                                           ),
                                           Text(
-                                            kd.toStringAsFixed(2),
+                                            kd.toStringAsFixed(3),
                                             style: const TextStyle(
                                               fontWeight: FontWeight.bold,
                                               color: Colors.orange,
@@ -1167,7 +1183,7 @@ class _CarControlScreenState extends State<CarControlScreen> {
                                           value: kd,
                                           min: minKd,
                                           max: maxKd,
-                                          divisions: 100,
+                                          divisions: 50,
                                           onChanged: (value) {
                                             setState(() {
                                               kd = value;
@@ -1176,7 +1192,7 @@ class _CarControlScreenState extends State<CarControlScreen> {
                                           onChangeEnd: (value) {
                                             controlCharacteristic?.write(
                                                 utf8.encode(
-                                                    "K${value.toStringAsFixed(2)}"));
+                                                    "K${value.toStringAsFixed(3)}"));
                                           },
                                         ),
                                       ),
@@ -1236,11 +1252,8 @@ class _CarControlScreenState extends State<CarControlScreen> {
                               ],
                             ),
                           ),
-                        ),
-                        // Sensor data section (bottom)
-                        Expanded(
-                          flex: 4,
-                          child: Container(
+                          // Sensor data section (bottom)
+                          Container(
                             width: double.infinity,
                             color: Theme.of(context).colorScheme.surface,
                             padding: const EdgeInsets.all(10.0),
@@ -1313,83 +1326,7 @@ class _CarControlScreenState extends State<CarControlScreen> {
                                     ),
                                   ],
                                 ),
-                                const SizedBox(height: 10),
-                                // Visualisation de la position de la voiture
-                                Container(
-                                  height: 80,
-                                  width: double.infinity,
-                                  decoration: BoxDecoration(
-                                    color: Colors
-                                        .grey.shade200, // Couleur de la piste
-                                    borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(
-                                        color: Colors.grey.shade400, width: 2),
-                                  ),
-                                  child: Stack(
-                                    children: [
-                                      // Ligne centrale de la piste
-                                      Positioned(
-                                        left: 0,
-                                        right: 0,
-                                        top: 0,
-                                        bottom: 0,
-                                        child: CustomPaint(
-                                          painter: DashedLinePainter(),
-                                          size: Size.infinite,
-                                        ),
-                                      ),
-                                      // Mur gauche
-                                      Positioned(
-                                        left: 0,
-                                        top: 0,
-                                        bottom: 0,
-                                        width: 8,
-                                        child: Container(
-                                          decoration: BoxDecoration(
-                                            color: Colors.grey.shade700,
-                                            borderRadius:
-                                                const BorderRadius.only(
-                                              topLeft: Radius.circular(6),
-                                              bottomLeft: Radius.circular(6),
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                      // Mur droit
-                                      Positioned(
-                                        right: 0,
-                                        top: 0,
-                                        bottom: 0,
-                                        width: 8,
-                                        child: Container(
-                                          decoration: BoxDecoration(
-                                            color: Colors.grey.shade700,
-                                            borderRadius:
-                                                const BorderRadius.only(
-                                              topRight: Radius.circular(6),
-                                              bottomRight: Radius.circular(6),
-                                            ),
-                                          ),
-                                        ),
-                                      ),
 
-                                      // Voiture
-                                      Positioned(
-                                        left: _calculateCarPosition(
-                                            leftDistance, rightDistance),
-                                        top: 10,
-                                        child: const SizedBox(
-                                          width: 60,
-                                          height: 60,
-                                          child: Image(
-                                            image: AssetImage('assets/car.png'),
-                                            fit: BoxFit.contain,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
                                 const SizedBox(height: 10),
                                 // Finish line detector
                                 Row(
@@ -1423,11 +1360,51 @@ class _CarControlScreenState extends State<CarControlScreen> {
                                     ),
                                   ],
                                 ),
+
+                                const SizedBox(height: 10),
+                                // Logs des capteurs
+                                const Text(
+                                  'Logs des capteurs :',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const SizedBox(height: 5),
+                                Container(
+                                  height: 150,
+                                  decoration: BoxDecoration(
+                                    color: Colors.grey.shade900,
+                                    borderRadius: BorderRadius.circular(8),
+                                    border:
+                                        Border.all(color: Colors.grey.shade800),
+                                  ),
+                                  child: ListView.builder(
+                                    reverse: true,
+                                    itemCount: sensorLogs.length,
+                                    itemBuilder: (context, index) {
+                                      return Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8.0,
+                                          vertical: 2.0,
+                                        ),
+                                        child: Text(
+                                          sensorLogs[index],
+                                          style: const TextStyle(
+                                            color: Colors.white70,
+                                            fontSize: 12,
+                                            fontFamily: 'monospace',
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                ),
                               ],
                             ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ),
