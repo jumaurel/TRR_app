@@ -401,9 +401,9 @@ class _CarControlScreenState extends State<CarControlScreen> {
   void _handleSensorData(List<int> data) {
     if (data.length >= 5 && data[0] == 68) { // 'D'
       setState(() {
-        leftDistance = data[0] | (data[1] << 8);
-        rightDistance = data[2] | (data[3] << 8);
-        isFinishLineDetected = data.length > 4 ? data[4] == 1 : false;
+        leftDistance = data[1] | (data[2] << 8);
+        rightDistance = data[3] | (data[4] << 8);
+        isFinishLineDetected = data.length > 5 ? data[5] == 1 : false;
 
         // Ajouter un nouveau log avec timestamp
         String timestamp = DateTime.now().toString().split('.')[0];
@@ -419,7 +419,7 @@ class _CarControlScreenState extends State<CarControlScreen> {
         }
       });
     } else if (data[0] == 76) { // 'L'
-      logEntry = String.fromCharCodes(data.sublist(1));
+      String logEntry = String.fromCharCodes(data.sublist(1));
       sensorLogs.insert(0, logEntry);
     }
   }
