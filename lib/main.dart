@@ -399,7 +399,7 @@ class _CarControlScreenState extends State<CarControlScreen> {
   }
 
   void _handleSensorData(List<int> data) {
-    if (data.length >= 4) {
+    if (data.length >= 5 && data[0] == 68) { // 'D'
       setState(() {
         leftDistance = data[0] | (data[1] << 8);
         rightDistance = data[2] | (data[3] << 8);
@@ -418,6 +418,9 @@ class _CarControlScreenState extends State<CarControlScreen> {
           sensorLogs.removeLast();
         }
       });
+    } else if (data[0] == 76) { // 'L'
+      logEntry = String.fromCharCodes(data.sublist(1));
+      sensorLogs.insert(0, logEntry);
     }
   }
 
